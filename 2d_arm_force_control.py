@@ -270,7 +270,7 @@ class QpInverseDynamicsController(RobotController):
         contact_results = \
             self.EvalAbstractInput(context, self.contact_results_input_port.get_index()).get_value()
         f = np.zeros(2)
-        f_desired = np.array([0,10])
+        f_desired = np.array([0,5])
         if contact_results.get_num_contacts() > 0:
             contact_info = contact_results.get_contact_info(0)
             contact_force = contact_info.get_resultant_force()
@@ -302,7 +302,9 @@ class QpInverseDynamicsController(RobotController):
         err_x_ee = x_ee_ref - x_ee
         err_xd_ee = xd_ee_ref - xd_ee
 
-        xdd_ee_des = xdd_ee_ref + 100 * err_x_ee + 10 * err_xd_ee
+        Kp = np.array([100,100])
+        Kd = np.array([20, 20])
+        xdd_ee_des = xdd_ee_ref + Kp * err_x_ee + Kd * err_xd_ee
 
 
         prog = MathematicalProgram()
@@ -325,7 +327,7 @@ class QpInverseDynamicsController(RobotController):
             prog.AddLinearConstraint(lhs[i] == rhs[i])
 
         prog.AddQuadraticCost(np.eye(self.nq), np.zeros(self.nq), vd)
-        prog.AddQuadraticCost(10*((fc - f_desired)**2).sum())
+        prog.AddQuadraticCost(100*((fc - f_desired)**2).sum())
 
         prog.Solve()
         vd_values = prog.GetSolution(vd)
@@ -431,7 +433,8 @@ if __name__ == "__main__":
         tau_d[i] = np.linalg.norm(tau[:,i] + tau_contact - tree.inverseDynamics(kinsol, {}, vd))
         f_contact_norm[i] = np.linalg.norm(f_contact)
         f_z[i] = f_contact[2]
-    # plt.plot(x_ee[0,1:], x_ee[1,1:])
+    plt.plot(x_ee[0,1:], x_ee[1,1:])
+    plt.show()
     plt.plot(t, tau_d)
     plt.show()
     plt.plot(t, f_contact_norm)
