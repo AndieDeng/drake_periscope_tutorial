@@ -221,7 +221,7 @@ class HybridForcePositionController(RobotController):
             self.EvalAbstractInput(context, self.contact_results_input_port.get_index()).get_value()
         contact_info = contact_results.get_contact_info(0)
         contact_force = contact_info.get_resultant_force()
-        f =  - contact_force.get_force()[1:3] # force applied by the environment on the robot.
+        f =  - contact_force.get_force()[1:3] # force applied by the robot on the environment.
         x = self.EvalVectorInput(context, self.robot_state_input_port.get_index()).get_value()
         q = x[:self.nq]
         v = x[self.nq:]
@@ -250,11 +250,11 @@ class HybridForcePositionController(RobotController):
         err_xd_ee = xd_ee_ref - xd_ee
         err_f = S.dot(f_ref - f)
 
-        xdd_ee_des = (I-S).dot(xdd_ee_ref + 100 * err_x_ee + 10 * err_xd_ee)
+        xdd_ee_des = (I-S).dot(xdd_ee_ref + 50 * err_x_ee + 5 * err_xd_ee)
         qdd_des = np.linalg.solve(J_ee, xdd_ee_des - J_eeDotTimesV[4:6])
 
         tau_p = self.tree.inverseDynamics(kinsol, external_wrenches={}, vd=qdd_des)
-        tau_f = S.dot(J_ee.T.dot(f_ref + 0.1*err_f)) #
+        tau_f = S.dot(J_ee.T.dot(f_ref + err_f)) #
         new_u = tau_f + tau_p
         new_control_input = discrete_state.get_mutable_vector().get_mutable_value()
         new_control_input[:] = new_u
@@ -267,8 +267,15 @@ class QpInverseDynamicsController(RobotController):
         # Call base method to ensure we do not get recursion.
         LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
 
+        contact_results = \
+            self.EvalAbstractInput(context, self.contact_results_input_port.get_index()).get_value()
+        f = np.zeros(2)
+        f_desired = np.array([0,10])
+        if contact_results.get_num_contacts() > 0:
+            contact_info = contact_results.get_contact_info(0)
+            contact_force = contact_info.get_resultant_force()
+            f =  contact_force.get_force()[1:3] # force applied by the environment on the robot.
 
-        new_control_input = discrete_state.get_mutable_vector().get_mutable_value()
         x = self.EvalVectorInput(context, self.robot_state_input_port.get_index()).get_value()
         q = x[:self.nq]
         v = x[self.nq:]
@@ -295,17 +302,19 @@ class QpInverseDynamicsController(RobotController):
         err_x_ee = x_ee_ref - x_ee
         err_xd_ee = xd_ee_ref - xd_ee
 
-        xdd_ee_des = xdd_ee_ref + 1000 * err_x_ee + 100 * err_xd_ee
+        xdd_ee_des = xdd_ee_ref + 100 * err_x_ee + 10 * err_xd_ee
 
 
         prog = MathematicalProgram()
         vd = prog.NewContinuousVariables(self.nq, 'vd') # joint space acceleration
         tau = prog.NewContinuousVariables(self.na, "tau")
+        fc = prog.NewContinuousVariables(2, 'fc') # contact forces
 
         # dynamics (without contact)
         lhs = H.dot(vd) + C
+        rhs = tau + J_ee.T.dot(fc)
         for i in range(self.nq):
-            prog.AddLinearConstraint(lhs[i] == tau[i])
+            prog.AddLinearConstraint(lhs[i] == rhs[i])
 
         # ee acceleration task
         # w = 10
@@ -317,11 +326,13 @@ class QpInverseDynamicsController(RobotController):
 
 
         prog.AddQuadraticCost(np.eye(self.nq), np.zeros(self.nq), vd)
+        prog.AddQuadraticCost(10*((fc - f_desired)**2).sum())
 
         prog.Solve()
         vd_values = prog.GetSolution(vd)
 
         new_u = prog.GetSolution(tau)
+        new_control_input = discrete_state.get_mutable_vector().get_mutable_value()
         new_control_input[:] = new_u
 
 class ConstantTorqueController(RobotController):
@@ -356,7 +367,7 @@ if __name__ == "__main__":
 
     builder = DiagramBuilder()
     builder.AddSystem(plant)
-    controller = builder.AddSystem(HybridForcePositionController(tree))
+    controller = builder.AddSystem(QpInverseDynamicsController(tree))
     visualizer = builder.AddSystem(meshcat_vis)
     state_logger = builder.AddSystem(SignalLogger(plant.state_output_port().size()))
     state_d_logger = builder.AddSystem(SignalLogger(plant.state_derivative_output_port().size()))
