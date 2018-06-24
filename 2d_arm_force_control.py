@@ -324,7 +324,6 @@ class QpInverseDynamicsController(RobotController):
         for i in range(len(lhs)):
             prog.AddLinearConstraint(lhs[i] == rhs[i])
 
-
         prog.AddQuadraticCost(np.eye(self.nq), np.zeros(self.nq), vd)
         prog.AddQuadraticCost(10*((fc - f_desired)**2).sum())
 
