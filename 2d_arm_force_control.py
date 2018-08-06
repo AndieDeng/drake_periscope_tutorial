@@ -46,7 +46,7 @@ def PrintRbtInfo(tree):
 
 # joint trajectory
 t = np.array([0, 2, 4])
-q_knots = np.array([[0.5, 0.75, 1.0], [0.05, 0.05, 0.05]])
+q_knots = np.array([[0.5, 0.5, 0.5], [0.05, 0.05, 0.05]])
 qtraj = PiecewisePolynomial.Cubic(t, q_knots, [0,0], [0,0])
 qtraj_d = qtraj.derivative(1)
 qtraj_dd = qtraj_d.derivative(1)
@@ -270,7 +270,7 @@ class QpInverseDynamicsController(RobotController):
         contact_results = \
             self.EvalAbstractInput(context, self.contact_results_input_port.get_index()).get_value()
         f = np.zeros(2)
-        f_desired = np.array([0,5])
+        f_desired = np.array([0,10])
         if contact_results.get_num_contacts() > 0:
             contact_info = contact_results.get_contact_info(0)
             contact_force = contact_info.get_resultant_force()
