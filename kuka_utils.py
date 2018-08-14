@@ -15,12 +15,100 @@ from pydrake.all import (
     PortDataType,
     RigidBodyFrame,
     RollPitchYaw,
-    RotationMatrix
+    RotationMatrix,
+    MathematicalProgram
 )
 
 import meshcat
 import meshcat.transformations as tf
 import meshcat.geometry as g
+
+def GetCollisionElementToRigidBodyIndexMap(tree):
+    map = {}
+    n_bodies = tree.get_num_bodies()
+    for i in range(n_bodies):
+        for element in tree.get_body(i).get_collision_element_ids():
+            map[element] = i
+
+    return map
+
+def PrintRbtInfo(tree):
+    n_positions = tree.get_num_positions()
+    for i in range(n_positions):
+        print i, tree.get_position_name(i)
+
+    print "-----------------"
+
+    n_bodies = tree.get_num_bodies()
+    for i in range(n_bodies):
+        print i, tree.getBodyOrFrameName(i)
+
+    print "Number of actuators:", tree.get_num_actuators()
+
+class ContactLogger(LeafSystem):
+    ''' Logs contact force history, using
+        the rigid body plant contact result
+        output port.
+
+        Stores sample times, accessible via
+        sample_times(), and contact results for
+        each sample time, accessible as a list
+        from method data().
+
+        Every contact result is a list of tuples,
+        one tuple for each contact,
+        where each tuple contains (id_1, id_2, r, f, tau):
+            id_1 = the ID of element #1 in collision
+            id_2 = the ID of element #2 in collision
+            r = the contact location, in world frame
+            f = the contact force, in world frame
+            tau = generalized contact force returned by
+                contact_results.get_generalized_contact_force()'''
+
+    def __init__(self, plant):
+        LeafSystem.__init__(self)
+
+        self._data = []
+        self._num_contacts = []
+        self._sample_times = np.empty((0, 1))
+        self.shut_up = False
+        # Contact results
+        self._DeclareInputPort(PortDataType.kAbstractValued,
+                               plant.contact_results_output_port().size())
+
+    def data(self):
+        return self._data
+
+    def sample_times(self):
+        return self._sample_times
+
+    def _DoPublish(self, context, events):
+        contact_results = self.EvalAbstractInput(context, 0).get_value()
+        self._sample_times = np.vstack([self._sample_times, [context.get_time()]])
+        self._num_contacts = np.hstack((self._num_contacts, \
+                                        contact_results.get_num_contacts()))
+
+        this_contact_info = []
+        for contact_i in range(contact_results.get_num_contacts()):
+            # if contact_i >= self.n_cf:
+            #     if not self.shut_up:
+            #         print "More contacts than expected (the # of grasp points). " \
+            #               "Dropping some! Your fingertips probably touched each other."
+            #         self.shut_up = True
+            #     break
+            # Cludgy -- would rather keep things as objects.
+            # But I need to work out how to deepcopy those objects.
+            # (Need to bind their various constructive methods)
+            contact_info = contact_results.get_contact_info(contact_i)
+            contact_force = contact_info.get_resultant_force()
+            this_contact_info.append([
+                contact_info.get_element_id_1(),
+                contact_info.get_element_id_2(),
+                contact_force.get_application_point(),
+                contact_force.get_force(),
+                contact_results.get_generalized_contact_force()
+            ])
+        self._data.append(this_contact_info)
 
 
 def extract_position_indices(rbt, controlled_joint_names):
@@ -97,7 +185,7 @@ def setup_kuka(rbt):
 
     object_init_frame = RigidBodyFrame(
         "object_init_frame", rbt.world(),
-        [0.8, 0, table_top_z_in_world+0.1], [0, 0, 0])
+        [0.8, 0.15, table_top_z_in_world+0.1], [0, 0, 0])
     AddModelInstanceFromUrdfFile(object_urdf_path,
                                  FloatingBaseType.kRollPitchYaw,
                                  object_init_frame, rbt)

@@ -29,6 +29,8 @@ from underactuated.meshcat_rigid_body_visualizer import (
 from pydrake.trajectories import (
     PiecewisePolynomial
 )
+
+import kuka_utils
 #%%
 def PrintRbtInfo(tree):
     n_positions = tree.get_num_positions()
@@ -50,69 +52,6 @@ q_knots = np.array([[0.5, 0.5, 0.5], [0.05, 0.05, 0.05]])
 qtraj = PiecewisePolynomial.Cubic(t, q_knots, [0,0], [0,0])
 qtraj_d = qtraj.derivative(1)
 qtraj_dd = qtraj_d.derivative(1)
-
-
-class ContactLogger(LeafSystem):
-    ''' Logs contact force history, using
-        the rigid body plant contact result
-        output port.
-
-        Stores sample times, accessible via
-        sample_times(), and contact results for
-        each sample time, accessible as a list
-        from method data().
-
-        Every contact result is a list of tuples,
-        one tuple for each contact,
-        where each tuple contains (id_1, id_2, r, f, tau):
-            id_1 = the ID of element #1 in collision
-            id_2 = the ID of element #2 in collision
-            r = the contact location, in world frame
-            f = the contact force, in world frame
-            tau = generalized contact force returned by
-                contact_results.get_neneraliEd_contact_force()'''
-
-    def __init__(self, plant):
-        LeafSystem.__init__(self)
-
-        self._data = []
-        self._sample_times = np.empty((0, 1))
-        self.shut_up = False
-        # Contact results
-        self._DeclareInputPort(PortDataType.kAbstractValued,
-                               plant.contact_results_output_port().size())
-
-    def data(self):
-        return self._data
-
-    def sample_times(self):
-        return self._sample_times
-
-    def _DoPublish(self, context, events):
-        contact_results = self.EvalAbstractInput(context, 0).get_value()
-        self._sample_times = np.vstack([self._sample_times, [context.get_time()]])
-
-        this_contact_info = []
-        for contact_i in range(contact_results.get_num_contacts()):
-            # if contact_i >= self.n_cf:
-            #     if not self.shut_up:
-            #         print "More contacts than expected (the # of grasp points). " \
-            #               "Dropping some! Your fingertips probably touched each other."
-            #         self.shut_up = True
-            #     break
-            # Cludgy -- would rather keep things as objects.
-            # But I need to work out how to deepcopy those objects.
-            # (Need to bind their various constructive methods)
-            contact_info = contact_results.get_contact_info(contact_i)
-            contact_force = contact_info.get_resultant_force()
-            this_contact_info.append([
-                contact_info.get_element_id_1(),
-                contact_info.get_element_id_2(),
-                contact_force.get_application_point(),
-                contact_force.get_force(),
-                contact_results.get_generalized_contact_force()
-            ])
-        self._data.append(this_contact_info)
 
 
 class RobotController(LeafSystem):
@@ -372,7 +311,7 @@ if __name__ == "__main__":
     visualizer = builder.AddSystem(meshcat_vis)
     state_logger = builder.AddSystem(SignalLogger(plant.state_output_port().size()))
     state_d_logger = builder.AddSystem(SignalLogger(plant.state_derivative_output_port().size()))
-    contact_logger = builder.AddSystem(ContactLogger(plant))
+    contact_logger = builder.AddSystem(kuka_utils.ContactLogger(plant))
     torque_logger = builder.AddSystem(SignalLogger(plant.torque_output_port().size()))
 
     builder.Connect(controller.get_output_port(0), plant.get_input_port(0))

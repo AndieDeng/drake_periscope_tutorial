@@ -10,7 +10,7 @@ from pydrake.solvers import ik
 import kuka_utils
 
 
-def plan_grasping_configuration(rbt, q0, target_ee_pose):
+def plan_grasping_configuration(rbt, q_seed, q0, target_ee_pose):
     ''' Performs IK for a single point in time
         to get the Kuka's gripper to a specified
         pose in space. '''
@@ -55,7 +55,7 @@ def plan_grasping_configuration(rbt, q0, target_ee_pose):
 
     options = ik.IKoptions(rbt)
     results = ik.InverseKin(
-        rbt, q0, q0, constraints, options)
+        rbt, q_seed, q0, constraints, options)
     print results.q_sol, "info %d" % results.info[0]
     return results.q_sol[0], results.info[0]
 
