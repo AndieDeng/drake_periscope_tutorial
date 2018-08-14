@@ -396,10 +396,6 @@ class ManipStateMachine(LeafSystem):
                 qdd_desired[self.controlled_inds] = 1000. * qerr + 100 * verr
 
 
-
-
-
-
     def _DoCalcHandSetpointOutput(self, context, y_data):
         state = context.get_discrete_state_vector().get_value()
         y = y_data.get_mutable_value()
