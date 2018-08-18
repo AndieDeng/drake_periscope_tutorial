@@ -83,6 +83,7 @@ class ContactLogger(LeafSystem):
         return self._sample_times
 
     def _DoPublish(self, context, events):
+        # LeafSystem._DoPublish(self, context, events)
         contact_results = self.EvalAbstractInput(context, 0).get_value()
         self._sample_times = np.vstack([self._sample_times, [context.get_time()]])
         self._num_contacts = np.hstack((self._num_contacts, \

@@ -284,7 +284,6 @@ class ConstantTorqueController(RobotController):
         new_control_input = discrete_state.get_mutable_vector().get_mutable_value()
         new_control_input[:] = [3,3]
 
-
 if __name__ == "__main__":
 #%%
     tree = RigidBodyTree()

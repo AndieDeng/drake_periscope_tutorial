@@ -153,8 +153,8 @@ if __name__ == "__main__":
         kuka_controllers.KukaController(rbt, rbplant_sys))
     builder.Connect(rbplant_sys.state_output_port(),
                     kuka_controller.robot_state_input_port)
-    builder.Connect(manip_state_machine.kuka_desired_acceleration_output_port,
-                    kuka_controller.desired_acceleration_input_port)
+    builder.Connect(manip_state_machine.kuka_plan_output_port,
+                    kuka_controller.plan_input_port)
     builder.Connect(kuka_controller.get_output_port(0),
                     rbplant_sys.get_input_port(0))
 
@@ -186,8 +186,6 @@ if __name__ == "__main__":
         builder.Connect(output_port, logger.get_input_port(0))
         return logger
     state_log = log_output(rbplant_sys.get_output_port(0), 60.)
-    setpoint_log = log_output(
-        manip_state_machine.kuka_desired_acceleration_output_port, 60.)
     kuka_control_log = log_output(
         kuka_controller.get_output_port(0), 60.)
 
@@ -246,11 +244,6 @@ if __name__ == "__main__":
                      color=colorthis,
                      linestyle='solid',
                      label="q[%d]" % i)
-            plt.plot(setpoint_log.sample_times(),
-                     setpoint_log.data()[i, :],
-                     color=colorthis,
-                     linestyle='dashed',
-                     label="q_des[%d]" % i)
         plt.ylabel("m")
         plt.grid(True)
         plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
@@ -264,11 +257,6 @@ if __name__ == "__main__":
                      color=colorthis,
                      linestyle='solid',
                      label="v[%d]" % i)
-            plt.plot(setpoint_log.sample_times(),
-                     setpoint_log.data()[nq + i, :],
-                     color=colorthis,
-                     linestyle='dashed',
-                     label="v_des[%d]" % i)
         plt.ylabel("m/s")
         plt.grid(True)
         plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)

@@ -54,6 +54,7 @@ class AbstractReceiver(LeafSystem):
         y[:] = control_output
 
 
+
 if __name__ == "__main__":
     builder = DiagramBuilder()
     sender = builder.AddSystem(AbstractSender())
