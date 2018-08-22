@@ -70,16 +70,6 @@ if __name__ == "__main__":
     # (Grasp planning is left as an exercise :))
     q0 = rbt.getZeroConfiguration()
 
-    # qtraj, info = kuka_ik.plan_grasping_trajectory(
-    #     rbt,
-    #     q0=q0,
-    #     target_reach_pose=np.array([0.6, 0., 1.0, -0.75, 0., -1.57]),
-    #     target_grasp_pose=np.array([0.8, 0., 0.9, -0.75, 0., -1.57]),
-    #     n_knots=20,
-    #     reach_time=1.5,
-    #     grasp_time=2.0)
-
-    #--------------------------------------------------------------
     q_seed = np.array([[0.2793],
                        [0.6824],
                        [-0.0456],
@@ -117,17 +107,48 @@ if __name__ == "__main__":
         1.2063])
     q3.resize((rbt.get_num_positions(), 1))
 
-    target_reach_pose = np.array([0.6, 0.15, 0.95, -0.75, 0., -1.57])
-    q_pre_grasp, info = kuka_ik.plan_grasping_configuration(
+    target_reach_pose = np.array([0.6, 0, 0.9, -0.75, 0., -1.57])
+    target_grasp_pose = np.array([0.80, 0., 0.82, -0.75, 0., -1.57])
+    target_release_pose = np.array([0.7, -0.2, 0.95, -0.75, 0., -1.57])
+    def ResizeQ(q):
+        q.resize(q_nominal_center.shape)
+
+    q_reach, info = kuka_ik.plan_grasping_configuration(
         rbt, q_seed.flatten(), q0, target_reach_pose)
+    q_grasp, info = kuka_ik.plan_grasping_configuration(
+        rbt, q_seed.flatten(), q0, target_grasp_pose)
+    q_release, info = kuka_ik.plan_grasping_configuration(
+        rbt, q_seed.flatten(), q0, target_release_pose)
+    ResizeQ(q_reach)
+    ResizeQ(q_grasp)
+    ResizeQ(q_release)
 
-    kinsol = rbt.doKinematics(q_pre_grasp)
-    idx_ee = 13
-    H_WE = rbt.CalcBodyPoseInWorldFrame(kinsol, rbt.get_body(idx_ee))
-    R_WEr = H_WE[0:3, 0:3]
+    qtraj_reach = PiecewisePolynomial.FirstOrderHold(
+        [0, 1.5], np.hstack((q_nominal_center, q_reach)))
+    qtraj_pre_grasp = PiecewisePolynomial.FirstOrderHold(
+        [0, 1.5], np.hstack((q_reach, q_grasp)))
 
-    qtraj = PiecewisePolynomial.FirstOrderHold(
-        [0, 1.5], np.hstack((q_nominal_center, q_pre_grasp.reshape(q_nominal_center.shape))))
+    # -----------------------------------------------------------
+    qtraj, info = kuka_ik.plan_grasping_trajectory(
+        rbt,
+        q0=q_nominal_center,
+        target_reach_pose=target_reach_pose,
+        target_grasp_pose=target_grasp_pose,
+        n_knots=20,
+        reach_time=1.5,
+        grasp_time=3.0)
+    qtraj_grasp = PiecewisePolynomial.ZeroOrderHold(
+        [0, 0.5], np.hstack((qtraj.value(qtraj.end_time()),
+                             qtraj.value(qtraj.end_time()))))
+    ResizeQ(q0)
+    qtraj_to_q0 = PiecewisePolynomial.Cubic(
+        [0, 1.0, 2.0], np.hstack((qtraj.value(qtraj.end_time()),
+                                  (qtraj.value(qtraj.end_time()) + q0)/2,
+                                  q0)),
+        np.zeros(rbt.get_num_velocities()), np.zeros(rbt.get_num_velocities()))
+
+    qtraj_list = [qtraj, qtraj_grasp, qtraj_to_q0]
+    gripper_setpoint_list = [0.1, 0, 0]
 
 
     # Make our RBT into a plant for simulation
@@ -139,48 +160,48 @@ if __name__ == "__main__":
     builder = DiagramBuilder()
     # The diagram takes ownership of all systems
     # placed into it.
-    rbplant_sys = builder.AddSystem(rbplant)
+    builder.AddSystem(rbplant)
 
     # Create a high-level state machine to guide the robot
     # motion...
     manip_state_machine = builder.AddSystem(
-        kuka_controllers.ManipStateMachine(rbt, rbplant_sys, [qtraj]))
-    builder.Connect(rbplant_sys.state_output_port(),
+        kuka_controllers.ManipStateMachine(
+            rbt, rbplant, qtraj_list, gripper_setpoint_list))
+    builder.Connect(rbplant.state_output_port(),
                     manip_state_machine.robot_state_input_port)
-    builder.Connect(rbplant_sys.contact_results_output_port(),
+    builder.Connect(rbplant.contact_results_output_port(),
                     manip_state_machine.contact_result_input_port)
 
     # And spawn the controller that drives the Kuka to its
     # desired posture.
     kuka_controller = builder.AddSystem(
-        kuka_controllers.KukaController(rbt, rbplant_sys))
-    builder.Connect(rbplant_sys.state_output_port(),
+        kuka_controllers.KukaController(rbt, rbplant))
+    builder.Connect(rbplant.state_output_port(),
                     kuka_controller.robot_state_input_port)
     builder.Connect(manip_state_machine.kuka_plan_output_port,
                     kuka_controller.plan_input_port)
     builder.Connect(kuka_controller.get_output_port(0),
-                    rbplant_sys.get_input_port(0))
+                    rbplant.get_input_port(0))
 
     # Same for the hand
     hand_controller = builder.AddSystem(
-        kuka_controllers.HandController(rbt, rbplant_sys))
-    builder.Connect(rbplant_sys.state_output_port(),
+        kuka_controllers.HandController(rbt, rbplant))
+    builder.Connect(rbplant.state_output_port(),
                     hand_controller.robot_state_input_port)
     builder.Connect(manip_state_machine.hand_setpoint_output_port,
                     hand_controller.setpoint_input_port)
     builder.Connect(hand_controller.get_output_port(0),
-                    rbplant_sys.get_input_port(1))
+                    rbplant.get_input_port(1))
 
     # Hook up the visualizer we created earlier.
     visualizer = builder.AddSystem(pbrv)
-    builder.Connect(rbplant_sys.state_output_port(),
+    builder.Connect(rbplant.state_output_port(),
                     visualizer.get_input_port(0))
 
-
     # Hook up contact logger
-    contact_logger = builder.AddSystem(kuka_utils.ContactLogger(rbplant_sys))
+    contact_logger = builder.AddSystem(kuka_utils.ContactLogger(rbplant))
     contact_logger._DeclarePeriodicPublish(1. / 100, 0.0)
-    builder.Connect(rbplant_sys.contact_results_output_port(), contact_logger.get_input_port(0))
+    builder.Connect(rbplant.contact_results_output_port(), contact_logger.get_input_port(0))
 
     # Hook up loggers for the robot state, the robot setpoints,
     # and the torque inputs.
@@ -189,7 +210,7 @@ if __name__ == "__main__":
         logger._DeclarePeriodicPublish(1. / rate, 0.0)
         builder.Connect(output_port, logger.get_input_port(0))
         return logger
-    state_log = log_output(rbplant_sys.get_output_port(0), 60.)
+    state_log = log_output(rbplant.get_output_port(0), 60.)
 
     kuka_control_log = log_output(
         kuka_controller.get_output_port(0), 60.)
@@ -231,11 +252,9 @@ if __name__ == "__main__":
     # in this call.
 
     # simulator.StepTo(args.duration)
-    simulator.StepTo(7.0)
+    simulator.StepTo(8.0)
 
     x_final = state.CopyToVector()
-    print("desired EE orientation: ", R_WEr)
-    print("final EE pose @ qf: ", manip_state_machine.CalcEEPoseInWorldFrame(x_final[0:rbt.get_num_positions()]))
     print("Final state: ", x_final)
 
     if args.test is not True:

@@ -277,13 +277,16 @@ class ManipStateMachine(LeafSystem):
     (qtraj_list[i].end_time() + 0.5) seconds, after which qtraj_list[i+1]
     will be sent.
     '''
-    def __init__(self, rbt, plant, qtraj_list):
+    def __init__(self, rbt, plant, qtraj_list, gripper_setpoint_list):
         LeafSystem.__init__(self)
         self.set_name("Manipulation State Machine")
 
+        assert len(qtraj_list) == len(gripper_setpoint_list)
+        self.gripper_setpoint_list = gripper_setpoint_list
+        self.qtraj_list = qtraj_list
+
         self.controlled_inds, _ = kuka_utils.extract_position_indices(
             rbt, kuka_controlled_joint_names)
-        self.qtraj_list = qtraj_list
 
         self.t_traj = np.zeros(len(qtraj_list) + 1)
         for i in range(len(qtraj_list)):
@@ -324,7 +327,7 @@ class ManipStateMachine(LeafSystem):
         new_state = discrete_state. \
             get_mutable_vector().get_mutable_value()
         # Close gripper after plan has been executed
-        new_state[:] = 0.1
+        new_state[:] = self.gripper_setpoint_list[self.current_traj_idx]
 
     def CalcPlan(self, context, y_data):
         t = context.get_time()
