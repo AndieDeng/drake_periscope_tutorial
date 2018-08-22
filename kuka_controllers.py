@@ -6,8 +6,45 @@ from pydrake.all import (
     BasicVector,
     LeafSystem,
     PortDataType,
+    MathematicalProgram,
+    AbstractValue,
 )
 import kuka_utils
+from pydrake.trajectories import (
+    PiecewisePolynomial
+)
+
+kuka_controlled_joint_names = [
+    "iiwa_joint_1",
+    "iiwa_joint_2",
+    "iiwa_joint_3",
+    "iiwa_joint_4",
+    "iiwa_joint_5",
+    "iiwa_joint_6",
+    "iiwa_joint_7",
+]
+
+plan_types = [
+    "JointSpacePlan",
+    "TaskSpacePlan",
+]
+
+idx_world = 0
+idx_ee = 13
+
+
+class Plan:
+    def __init__(self,
+                 type = None,
+                 trajectory = None,
+                 start_time = None,
+                 R_WE_ref = None):
+        self.type = type
+        self.traj = trajectory
+        if trajectory is not None:
+            self.traj_d = trajectory.derivative(1)
+        self.t_start = start_time
+        self.R_WE_ref = R_WE_ref
 
 
 class KukaController(LeafSystem):
@@ -17,18 +54,8 @@ class KukaController(LeafSystem):
         LeafSystem.__init__(self)
         self.set_name("Kuka Controller")
 
-        self.controlled_joint_names = [
-            "iiwa_joint_1",
-            "iiwa_joint_2",
-            "iiwa_joint_3",
-            "iiwa_joint_4",
-            "iiwa_joint_5",
-            "iiwa_joint_6",
-            "iiwa_joint_7"
-        ]
-
         self.controlled_inds, _ = kuka_utils.extract_position_indices(
-            rbt, self.controlled_joint_names)
+            rbt, kuka_controlled_joint_names)
         # Extract the full-rank bit of B, and verify that it's full rank
         self.nq_reduced = len(self.controlled_inds)
         self.B = np.empty((self.nq_reduced, self.nq_reduced))
@@ -53,11 +80,8 @@ class KukaController(LeafSystem):
             self._DeclareInputPort(PortDataType.kVectorValued,
                                    rbt.get_num_positions() +
                                    rbt.get_num_velocities())
-
-        self.setpoint_input_port = \
-            self._DeclareInputPort(PortDataType.kVectorValued,
-                                   rbt.get_num_positions() +
-                                   rbt.get_num_velocities())
+        self.plan_input_port = \
+            self._DeclareInputPort(PortDataType.kAbstractValued, 0)
 
         self._DeclareDiscreteState(self.nu)
         self._DeclarePeriodicDiscreteUpdate(period_sec=control_period)
@@ -73,24 +97,91 @@ class KukaController(LeafSystem):
 
         new_control_input = discrete_state. \
             get_mutable_vector().get_mutable_value()
+        t= context.get_time()
         x = self.EvalVectorInput(
             context, self.robot_state_input_port.get_index()).get_value()
-        x_des = self.EvalVectorInput(
-            context, self.setpoint_input_port.get_index()).get_value()
+        plan = self.EvalAbstractInput(
+            context, self.plan_input_port.get_index()).get_value()
         q = x[:self.nq]
         v = x[self.nq:]
-        q_des = x_des[:self.nq]
-        v_des = x_des[self.nq:]
-
-        qerr = (q_des[self.controlled_inds] - q[self.controlled_inds])
-        verr = (v_des[self.controlled_inds] - v[self.controlled_inds])
-
         kinsol = self.rbt.doKinematics(q, v)
-        # Get the full LHS of the manipulator equations
-        # given the current config and desired accelerations
-        vd_des = np.zeros(self.rbt.get_num_positions())
-        vd_des[self.controlled_inds] = 1000.*qerr + 100*verr
-        lhs = self.rbt.inverseDynamics(kinsol, external_wrenches={}, vd=vd_des)
+        qdd_desired = np.zeros(self.rbt.get_num_positions())
+
+        if plan.type == "JointSpacePlan":
+            q_ref = plan.traj.value(t - plan.t_start).flatten()
+            v_ref = plan.traj_d.value(t - plan.t_start).flatten()
+
+            qerr = (q_ref[self.controlled_inds] - q[self.controlled_inds])
+            verr = (v_ref[self.controlled_inds] - v[self.controlled_inds])
+
+            # Get the full LHS of the manipulator equations
+            # given the current config and desired accelerations
+            qdd_desired[self.controlled_inds] = 1000.*qerr + 100*verr
+        elif plan.type == "TaskSpacePlan":
+            t2 = t - plan.t_start
+            H_WE = self.rbt.CalcBodyPoseInWorldFrame(kinsol, self.rbt.get_body(idx_ee))
+            H_EW = np.linalg.inv(H_WE)
+            R_EW = H_EW[0:3, 0:3]
+            p_EW = H_EW[0:3, 3]
+
+            Ad_EW = np.zeros((6, 6))
+            Ad_EW[0:3, 0:3] = R_EW
+            Ad_EW[3:6, 3:6] = R_EW
+            p_tilt = np.array([[0, -p_EW[2], p_EW[1]], \
+                               [p_EW[2], 0, -p_EW[1]], \
+                               [-p_EW[1], p_EW[0], 0]])
+            Ad_EW[3:6, 0:3] = p_tilt.dot(R_EW)
+
+            H_WEr = np.eye(4)
+            H_WEr[0:3, 0:3] = plan.R_WE_ref
+            H_WEr[0:3, 3] = plan.traj.value(t2).flatten()
+
+            H_EEr = H_EW.dot(H_WEr)
+            p_EEr = H_EEr[0:3, 3]
+            R_EEr = H_EEr[0:3, 0:3]
+
+            phi = np.arccos(0.5 * (R_EEr[0, 0] + R_EEr[1, 1] + R_EEr[2, 2] - 1))
+            phi_over_sin_phi = 0
+            if np.abs(phi) < 1e-6:
+                phi_over_sin_phi = 1
+            else:
+                phi_over_sin_phi = phi / np.sin(phi)
+
+            log_R_EEr_matirx = 0.5 * phi_over_sin_phi * (R_EEr - R_EEr.T)
+            log_R_EEr = np.zeros(3)
+            log_R_EEr[0] = log_R_EEr_matirx[2, 1]
+            log_R_EEr[1] = log_R_EEr_matirx[0, 2]
+            log_R_EEr[2] = log_R_EEr_matirx[1, 0]
+
+            T_WE_E = self.rbt.relativeTwist(kinsol, idx_world, idx_ee, idx_ee)
+            T_WEr_E = np.zeros(6)
+            T_WEr_E[3:6] = plan.traj_d.value(t2).flatten()
+            T_EEr_E = T_WEr_E - T_WE_E
+
+            kp_rotation = np.full(3, 50)
+            kp_translation = np.full(3, 50)
+            kd = np.full(6, 5)
+
+            dT_WE_E_des = kd * T_EEr_E
+            dT_WE_E_des[0:3] += kp_rotation * log_R_EEr
+            dT_WE_E_des[3:6] += kp_translation * p_EEr
+
+            J_WE_E, _ = self.rbt.geometricJacobian(kinsol, idx_world, idx_ee, idx_ee)
+
+            prog = MathematicalProgram()
+            kuka_qdd_des = prog.NewContinuousVariables(7, 'kuka_qdd_des')
+            lhs = dT_WE_E_des - self.rbt.geometricJacobianDotTimesV(kinsol, idx_world, idx_ee, idx_ee)
+            rhs = J_WE_E.dot(kuka_qdd_des)
+            # for i in range(lhs.size):
+            #     prog.AddLinearConstraint(rhs[i], lhs[i], lhs[i])
+            prog.AddQuadraticCost(100 * ((lhs - rhs) ** 2).sum())
+            prog.AddQuadraticCost((kuka_qdd_des ** 2).sum())
+            prog.Solve()
+            kuka_qdd_des_values = prog.GetSolution(kuka_qdd_des)
+
+            qdd_desired[self.controlled_inds] = kuka_qdd_des_values
+
+        lhs = self.rbt.inverseDynamics(kinsol, external_wrenches={}, vd=qdd_desired)
         new_u = self.B_inv.dot(lhs[self.controlled_inds])
         new_control_input[:] = new_u
 
@@ -104,7 +195,6 @@ class KukaController(LeafSystem):
         y = y_data.get_mutable_value()
         # Get the ith finger control output
         y[:] = control_output[:]
-
 
 class HandController(LeafSystem):
     def __init__(self, rbt, plant,
@@ -178,24 +268,31 @@ class HandController(LeafSystem):
 
 
 class ManipStateMachine(LeafSystem):
-    ''' Encodes the high-level logic
-        for the manipulation system.
-
-        This implementation is fairly minimal.
-        It is supplied with an open-loop
-        trajectory (presumably, to grasp the object from a
-        known position). At runtime, it spools
-        out pose goals for the robot according to
-        this trajectory. Once the trajectory has been
-        executed, it closes the gripper, waits
-        a second, and then plays the trajectory back in reverse
-        to bring the robot back to its original posture.
     '''
-    def __init__(self, rbt, plant, qtraj):
+    Encodes the high-level logic for the manipulation system.
+
+    This state machine receives a list of trajectories, and sends them to
+    the robot in a chronological order. Each trajectory is sent through
+    the system's kuka_plan_output_port for
+    (qtraj_list[i].end_time() + 0.5) seconds, after which qtraj_list[i+1]
+    will be sent.
+    '''
+    def __init__(self, rbt, plant, qtraj_list):
         LeafSystem.__init__(self)
         self.set_name("Manipulation State Machine")
 
-        self.qtraj = qtraj
+        self.controlled_inds, _ = kuka_utils.extract_position_indices(
+            rbt, kuka_controlled_joint_names)
+        self.qtraj_list = qtraj_list
+
+        self.t_traj = np.zeros(len(qtraj_list) + 1)
+        for i in range(len(qtraj_list)):
+            self.t_traj[i+1] = self.t_traj[i] + 0.5 + qtraj_list[i].end_time()
+
+        self.current_traj_idx = 0
+        self.current_plan = Plan(type=plan_types[0],
+                            trajectory=self.qtraj_list[0],
+                            start_time=0)
 
         self.rbt = rbt
         self.nq = rbt.get_num_positions()
@@ -205,20 +302,19 @@ class ManipStateMachine(LeafSystem):
             self._DeclareInputPort(PortDataType.kVectorValued,
                                    rbt.get_num_positions() +
                                    rbt.get_num_velocities())
+        self.contact_result_input_port = \
+            self._DeclareInputPort(PortDataType.kAbstractValued,
+                                   plant.contact_results_output_port().size())
 
         self._DeclareDiscreteState(1)
-        self._DeclarePeriodicDiscreteUpdate(period_sec=0.001)
-
-        self.kuka_setpoint_output_port = \
-            self._DeclareVectorOutputPort(
-                BasicVector(rbt.get_num_positions() +
-                            rbt.get_num_velocities()),
-                self._DoCalcKukaSetpointOutput)
+        self._DeclarePeriodicDiscreteUpdate(period_sec=0.01)
+        self.kuka_plan_output_port = \
+            self._DeclareAbstractOutputPort(
+                lambda: AbstractValue.Make(Plan()), self.CalcPlan)
         self.hand_setpoint_output_port = \
-            self._DeclareVectorOutputPort(BasicVector(1),
-                                          self._DoCalcHandSetpointOutput)
+            self._DeclareVectorOutputPort(
+                BasicVector(1), self._DoCalcHandSetpointOutput)
 
-        self._DeclarePeriodicPublish(0.01, 0.0)
 
     def _DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
         # Call base method to ensure we do not get recursion.
@@ -228,33 +324,28 @@ class ManipStateMachine(LeafSystem):
         new_state = discrete_state. \
             get_mutable_vector().get_mutable_value()
         # Close gripper after plan has been executed
-        if context.get_time() > self.qtraj.end_time():
-            new_state[:] = 0.
-        else:
-            new_state[:] = 0.1
+        new_state[:] = 0.1
 
-    def _DoCalcKukaSetpointOutput(self, context, y_data):
-
+    def CalcPlan(self, context, y_data):
         t = context.get_time()
+        x = self.EvalVectorInput(
+            context, self.robot_state_input_port.get_index()).get_value()
+        q = x[:self.nq]
+        v = x[self.nq:]
 
-        t_end = self.qtraj.end_time()
-        if t < t_end:
-            virtual_time = t
-        else:
-            virtual_time = t_end - (t - t_end)
+        new_traj_idx = 0
+        for i in range(len(self.qtraj_list)):
+            if t >= self.t_traj[i] and t < self.t_traj[i+1]:
+                new_traj_idx = i
+                break
+        if self.current_traj_idx < new_traj_idx:
+            self.current_traj_idx = new_traj_idx
+            self.current_plan = Plan(type=plan_types[0],
+                            trajectory=self.qtraj_list[new_traj_idx],
+                            start_time=t)
+        y_data.set_value(self.current_plan)
 
-        dt = 0.01  # Look-ahead for estimating target velocity
 
-        target_q = self.qtraj.value(virtual_time)
-        target_qn = self.qtraj.value(virtual_time+dt)
-        # This is pretty inefficient and inaccurate -- TODO(gizatt)
-        # velocity target directly from the trajectory object somehow.
-        target_v = (target_qn - target_q) / dt
-        if t >= t_end:
-            target_v *= -1.
-        kuka_setpoint = y_data.get_mutable_value()
-        kuka_setpoint[:self.nq] = target_q[:, 0]
-        kuka_setpoint[self.nq:] = target_v[:, 0]
 
     def _DoCalcHandSetpointOutput(self, context, y_data):
         state = context.get_discrete_state_vector().get_value()
