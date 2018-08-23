@@ -14,4 +14,4 @@ RUN apt install -y python-tk xvfb mesa-utils libegl1-mesa libgl1-mesa-glx libglu
 ENV PYTHONPATH=/underactuated/src:/opt/drake/lib/python2.7/site-packages
 COPY ./ /test_dir
 
-ENTRYPOINT bash -c "/test_dir/run_tests.sh"
+ENTRYPOINT bash -c "/test_dir/start_docker.sh && /bin/bash"
