@@ -288,8 +288,7 @@ if __name__ == "__main__":
 #%%
     tree = RigidBodyTree()
     arm_urdf_path = os.path.join(
-        pydrake.getDrakePath(),
-        "manipulation", "models", "two_link_arm.urdf")
+        os.getcwd(), "two_link_arm.urdf")
 
     AddModelInstanceFromUrdfFile(arm_urdf_path, FloatingBaseType.kFixed, None, tree)
 
