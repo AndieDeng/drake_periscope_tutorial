@@ -90,8 +90,6 @@ for camera in cameras:
 
     # Convert depth image to point cloud, with +z being
     # camera "forward"
-
-    tree = camera.tree()
     Kinv = np.linalg.inv(
         camera.depth_camera_info().intrinsic_matrix())
     U, V = np.meshgrid(np.arange(h), np.arange(w))
