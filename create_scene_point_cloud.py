@@ -119,7 +119,8 @@ for camera in cameras:
 
 prefix="RBCameraViz"
 vis = meshcat.Visualizer(zmq_url="tcp://127.0.0.1:6000")
-vis[prefix].delete()
+vis.delete()
+# vis[prefix].delete()
 # Color points according to their normalized height
 min_height = 0.0
 max_height = 2.0
@@ -127,4 +128,4 @@ colors = cm.jet((points_in_world_frame[2, :] - min_height) / (max_height - min_h
 vis[prefix]["points"].set_object(
     g.PointCloud(position=points_in_world_frame,
                  color=colors,
-                 size=0.001))
+                 size=0.002))

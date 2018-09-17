@@ -73,6 +73,10 @@ def setup_kuka(rbt):
         "examples", "kuka_iiwa_arm", "models", "objects",
         "block_for_pick_and_place.urdf")
 
+    apple_urdf_path = os.path.join(
+        os.getcwd(), "models", "apple.urdf"
+    )
+
     AddFlatTerrainToWorld(rbt)
     table_frame_robot = RigidBodyFrame(
         "table_frame_robot", rbt.world(),
@@ -97,8 +101,8 @@ def setup_kuka(rbt):
 
     object_init_frame = RigidBodyFrame(
         "object_init_frame", rbt.world(),
-        [0.8, 0, table_top_z_in_world+0.1], [0, 0, 0])
-    AddModelInstanceFromUrdfFile(object_urdf_path,
+        [0.8, 0, table_top_z_in_world], [0, 0, 0])
+    AddModelInstanceFromUrdfFile(apple_urdf_path,
                                  FloatingBaseType.kRollPitchYaw,
                                  object_init_frame, rbt)
 
