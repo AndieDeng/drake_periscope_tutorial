@@ -52,7 +52,7 @@ def extract_position_indices(rbt, controlled_joint_names):
     return controlled_config_inds, other_config_inds
 
 
-def setup_kuka(rbt):
+def setup_kuka(rbt, object_file_name):
     iiwa_urdf_path = os.path.join(
         pydrake.getDrakePath(),
         "manipulation", "models", "iiwa_description", "urdf",
@@ -68,14 +68,15 @@ def setup_kuka(rbt):
         "examples", "kuka_iiwa_arm", "models", "table",
         "extra_heavy_duty_table_surface_only_collision.sdf")
 
-    object_urdf_path = os.path.join(
+    box_urdf_path = os.path.join(
         pydrake.getDrakePath(),
         "examples", "kuka_iiwa_arm", "models", "objects",
-        "block_for_pick_and_place.urdf")
+        "open_top_box.urdf")
 
-    apple_urdf_path = os.path.join(
-        os.getcwd(), "models", "apple.urdf"
-    )
+    object_urdf_path = os.path.join(
+        os.getcwd(), "models", object_file_name)
+
+
 
     AddFlatTerrainToWorld(rbt)
     table_frame_robot = RigidBodyFrame(
@@ -102,9 +103,12 @@ def setup_kuka(rbt):
     object_init_frame = RigidBodyFrame(
         "object_init_frame", rbt.world(),
         [0.8, 0, table_top_z_in_world], [0, 0, 0])
-    AddModelInstanceFromUrdfFile(apple_urdf_path,
+    AddModelInstanceFromUrdfFile(object_urdf_path,
                                  FloatingBaseType.kRollPitchYaw,
                                  object_init_frame, rbt)
+    # AddModelInstanceFromUrdfFile(box_urdf_path,
+    #                              FloatingBaseType.kRollPitchYaw,
+    #                              object_init_frame, rbt)
 
     # Add gripper
     gripper_frame = rbt.findFrame("iiwa_frame_ee")

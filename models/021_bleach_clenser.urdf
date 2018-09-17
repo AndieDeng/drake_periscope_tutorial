@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<robot name="apple">
+  <link name="base_link_apple">
+    <inertial>
+      <origin xyz="0 0 0.125" rpy="0 0 0" />
+      <mass value="1.1" />
+      <inertia ixx="2.42e-5" ixy="0" ixz="0" iyy="5.50e-5" iyz="0"
+          izz="3.72e-6" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="021_bleach_clenser.obj"/>
+      </geometry>
+      <material name="red">
+        <color rgba="0.9 0.1 0.1 0.9" />
+      </material>
+    </visual>
+
+    <collision>
+      <geometry>
+        <mesh filename="021_bleach_clenser.obj"/>
+      </geometry>
+    </collision>
+
+
+   </link>
+</robot>

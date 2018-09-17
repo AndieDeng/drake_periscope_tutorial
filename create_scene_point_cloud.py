@@ -24,10 +24,10 @@ import kuka_utils
 
 
 # Create tree describing scene.
-urdf_path = FindResourceOrThrow(
-    "drake/examples/kuka_iiwa_arm/models/objects/black_box.urdf")
+# object_file_name = "021_bleach_clenser.urdf"
+object_file_name = "004_sugar_box.urdf"
 tree = RigidBodyTree()
-kuka_utils.setup_kuka(tree)
+kuka_utils.setup_kuka(tree, object_file_name)
 
 # - Add frames for camera fixture.
 frames = (
