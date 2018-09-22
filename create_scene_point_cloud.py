@@ -1,6 +1,7 @@
 import numpy as np
 from matplotlib import cm
 
+import pydrake
 from pydrake.common import FindResourceOrThrow
 from pydrake.multibody.rigid_body_tree import (
     AddModelInstanceFromUrdfFile,
@@ -24,8 +25,9 @@ import kuka_utils
 
 
 # Create tree describing scene.
-# object_file_name = "021_bleach_clenser.urdf"
-object_file_name = "004_sugar_box.urdf"
+object_file_name = "021_bleach_clenser.urdf"
+# object_file_name = "004_sugar_box.urdf"
+# object_file_name = "apple.urdf"
 tree = RigidBodyTree()
 kuka_utils.setup_kuka(tree, object_file_name)
 
@@ -53,7 +55,6 @@ frames = (
         rpy=[0, np.pi / 3, 0]),
 )
 
-
 cameras = []
 
 for i, frame in enumerate(frames):
@@ -66,6 +67,8 @@ for i, frame in enumerate(frames):
 
 # - Describe state.
 x = np.zeros(tree.get_num_positions() + tree.get_num_velocities())
+x[13] = -0.25
+x[14] = -0.28
 kinsol = tree.doKinematics(x[:tree.get_num_positions()])
 
 # Allocate context and render.
@@ -127,3 +130,6 @@ vis[prefix]["points"].set_object(
     g.PointCloud(position=points_in_world_frame,
                  color=colors,
                  size=0.002))
+
+np.save("scene_point_cloud", points_in_world_frame.T)
+

@@ -69,9 +69,7 @@ def setup_kuka(rbt, object_file_name):
         "extra_heavy_duty_table_surface_only_collision.sdf")
 
     box_urdf_path = os.path.join(
-        pydrake.getDrakePath(),
-        "examples", "kuka_iiwa_arm", "models", "objects",
-        "open_top_box.urdf")
+        os.getcwd(), "models", "pedestal.urdf")
 
     object_urdf_path = os.path.join(
         os.getcwd(), "models", object_file_name)
@@ -106,9 +104,9 @@ def setup_kuka(rbt, object_file_name):
     AddModelInstanceFromUrdfFile(object_urdf_path,
                                  FloatingBaseType.kRollPitchYaw,
                                  object_init_frame, rbt)
-    # AddModelInstanceFromUrdfFile(box_urdf_path,
-    #                              FloatingBaseType.kRollPitchYaw,
-    #                              object_init_frame, rbt)
+    AddModelInstanceFromUrdfFile(box_urdf_path,
+                                 FloatingBaseType.kRollPitchYaw,
+                                 object_init_frame, rbt)
 
     # Add gripper
     gripper_frame = rbt.findFrame("iiwa_frame_ee")
