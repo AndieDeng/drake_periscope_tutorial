@@ -1,6 +1,7 @@
 import numpy as np
 from matplotlib import cm
 import os
+import time
 import pydrake
 from pydrake.common import FindResourceOrThrow
 from pydrake.multibody.rigid_body_tree import (
@@ -100,74 +101,81 @@ x[0] = 0
 x[1] = 0
 x[2] = 1
 x[4] = np.pi/4
-kinsol = tree.doKinematics(x[:tree.get_num_positions()])
 
-# Allocate context and render.
-points_in_world_frame = np.zeros((3, 0))
-colors = np.zeros((3, 0))
-for camera in cameras:
-    context = camera.CreateDefaultContext()
-    context.FixInputPort(0, BasicVector(x))
-    output = camera.AllocateOutput()
-    camera.CalcOutput(context, output)
+def GeneratePointCloudFromSystemState(x):
+    # Allocate context and render.
+    kinsol = tree.doKinematics(x[:tree.get_num_positions()])
+    points_in_world_frame = np.zeros((3, 0))
+    colors = np.zeros((3, 0))
+    for camera in cameras:
+        context = camera.CreateDefaultContext()
+        context.FixInputPort(0, BasicVector(x))
+        output = camera.AllocateOutput()
+        camera.CalcOutput(context, output)
 
-    # Get images from computed output.
-    color_index = camera.color_image_output_port().get_index()
-    color_image = output.get_data(color_index).get_value()
-    color_array = color_image.data
+        # Get images from computed output.
+        color_index = camera.color_image_output_port().get_index()
+        color_image = output.get_data(color_index).get_value()
+        color_array = color_image.data
 
-    depth_index = camera.depth_image_output_port().get_index()
-    depth_image = output.get_data(depth_index).get_value()
-    depth_array = np.squeeze(depth_image.data)
+        depth_index = camera.depth_image_output_port().get_index()
+        depth_image = output.get_data(depth_index).get_value()
+        depth_array = np.squeeze(depth_image.data)
 
-    w, h = depth_array.shape
+        w, h = depth_array.shape
 
-    # Convert depth image to point cloud, with +z being
-    # camera "forward"
-    Kinv = np.linalg.inv(
-        camera.depth_camera_info().intrinsic_matrix())
-    U, V = np.meshgrid(np.arange(h), np.arange(w))
-    points_in_camera_frame = np.vstack([
-        U.flatten(),
-        V.flatten(),
-        np.ones(w * h)])
-    points_in_camera_frame = Kinv.dot(points_in_camera_frame) * \
-                             depth_array.flatten()
+        # Convert depth image to point cloud, with +z being
+        # camera "forward"
+        Kinv = np.linalg.inv(
+            camera.depth_camera_info().intrinsic_matrix())
+        U, V = np.meshgrid(np.arange(h), np.arange(w))
+        points_in_camera_frame = np.vstack([
+            U.flatten(),
+            V.flatten(),
+            np.ones(w * h)])
+        points_in_camera_frame = Kinv.dot(points_in_camera_frame) * \
+                                 depth_array.flatten()
 
-    # The depth camera has some offset from the camera's root frame,
-    # so take than into account.
-    pose_mat = camera.depth_camera_optical_pose().matrix()
-    points_in_camera_frame = pose_mat[0:3, 0:3].dot(points_in_camera_frame)
-    points_in_camera_frame += np.tile(pose_mat[0:3, 3], [w * h, 1]).T
+        # The depth camera has some offset from the camera's root frame,
+        # so take than into account.
+        pose_mat = camera.depth_camera_optical_pose().matrix()
+        points_in_camera_frame = pose_mat[0:3, 0:3].dot(points_in_camera_frame)
+        points_in_camera_frame += np.tile(pose_mat[0:3, 3], [w * h, 1]).T
 
 
-    points_in_world_frame = np.hstack((points_in_world_frame,
-                                       tree.transformPoints(
-                                           kinsol,
-                                           points_in_camera_frame,
-                                           camera.frame().get_frame_index(),
-                                           0)))
-
+        points_in_world_frame = np.hstack((points_in_world_frame,
+                                           tree.transformPoints(
+                                               kinsol,
+                                               points_in_camera_frame,
+                                               camera.frame().get_frame_index(),
+                                               0)))
+    return points_in_world_frame
 
 prefix="RBCameraViz"
 vis = meshcat.Visualizer(zmq_url="tcp://127.0.0.1:6000")
 vis.delete()
+
+tree_viz = MeshcatRigidBodyVisualizer(rbtree=tree)
+
 # vis[prefix].delete()
 # Color points according to their normalized height
 min_height = 0.0
-max_height = 2.0
-colors = cm.jet((points_in_world_frame[2, :] - min_height) / (max_height - min_height)).T[0:3, :]
-vis[prefix]["points"].set_object(
-    g.PointCloud(position=points_in_world_frame,
-                 color=colors,
-                 size=0.002))
+max_height = 0.5
 
+for i in range(100):
+    x[2]+=0.01
 
-tree_viz = MeshcatRigidBodyVisualizer(rbtree=tree)
-context_viz = tree_viz.CreateDefaultContext()
-context_viz.FixInputPort(0, BasicVector(x))
-tree_viz.draw(context_viz)
+    context_viz = tree_viz.CreateDefaultContext()
+    context_viz.FixInputPort(0, BasicVector(x))
+    tree_viz.draw(context_viz)
 
+    points_in_world_frame = GeneratePointCloudFromSystemState(x)
+    colors = cm.jet((points_in_world_frame[2, :] - min_height) / (max_height - min_height)).T[0:3, :]
+    vis[prefix]["points"].set_object(
+        g.PointCloud(position=points_in_world_frame,
+                     color=colors,
+                     size=0.002))
+    time.sleep(0.1)
 
 np.save("scene_point_cloud", points_in_world_frame.T)
 
