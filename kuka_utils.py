@@ -104,9 +104,9 @@ def setup_kuka(rbt, object_file_name):
     AddModelInstanceFromUrdfFile(object_urdf_path,
                                  FloatingBaseType.kRollPitchYaw,
                                  object_init_frame, rbt)
-    AddModelInstanceFromUrdfFile(box_urdf_path,
-                                 FloatingBaseType.kRollPitchYaw,
-                                 object_init_frame, rbt)
+    # AddModelInstanceFromUrdfFile(box_urdf_path,
+    #                              FloatingBaseType.kRollPitchYaw,
+    #                              object_init_frame, rbt)
 
     # Add gripper
     gripper_frame = rbt.findFrame("iiwa_frame_ee")

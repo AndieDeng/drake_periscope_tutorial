@@ -1,0 +1,31 @@
+<sdf version='1.6'>
+  <model name='building'>
+    <link name='cmu_house'>
+      <pose frame=''>0 0 0 0 -0 0</pose>
+      <inertial>
+        <pose frame=''>-0.1 0 0.07 0 -0 0</pose>
+        <mass>5</mass>
+        <inertia>
+          <ixx>0.05</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.06</iyy>
+          <iyz>0</iyz>
+          <izz>0.03</izz>
+        </inertia>
+      </inertial>
+      <visual name='cmu_hh_remesh'>
+        <pose frame=''>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.03 0.03 0.03</scale>
+            <uri>/home/andiedeng/drake_periscope_tutorial/models/cmu_hh_remesh.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>0.4 0.4 0.4 1.0</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

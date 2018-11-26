@@ -1,6 +1,6 @@
 import numpy as np
 from matplotlib import cm
-
+import os
 import pydrake
 from pydrake.common import FindResourceOrThrow
 from pydrake.multibody.rigid_body_tree import (
@@ -16,43 +16,72 @@ from pydrake.systems.sensors import (
     CameraInfo,
     RgbdCamera,
     )
-
+from pydrake.all import (
+    AddFlatTerrainToWorld,
+    AddModelInstancesFromSdfString,
+    AddModelInstanceFromUrdfFile,
+    AddModelInstanceFromUrdfStringSearchingInRosPackages,
+    FloatingBaseType,
+    LeafSystem,
+    PortDataType,
+    RigidBodyFrame,
+    RollPitchYaw,
+    RotationMatrix
+)
 import meshcat
 import meshcat.transformations as tf
 import meshcat.geometry as g
 
 import kuka_utils
-
+from underactuated import MeshcatRigidBodyVisualizer
 
 # Create tree describing scene.
 object_file_name = "021_bleach_clenser.urdf"
 # object_file_name = "004_sugar_box.urdf"
 # object_file_name = "apple.urdf"
 tree = RigidBodyTree()
-kuka_utils.setup_kuka(tree, object_file_name)
+#kuka_utils.setup_kuka(tree, object_file_name)
+building_sdf_path = os.path.join(
+    os.getcwd(), "models", "cmu_building.sdf")
+uav_urdf_path = os.path.join(
+    os.getcwd(), "models", "021_bleach_clenser.urdf")
+AddFlatTerrainToWorld(tree)
+table_frame_robot = RigidBodyFrame(
+    "table_frame_robot", tree.world(),
+    [-1.5, -1, 0], [0, 0, 0])
+AddModelInstancesFromSdfString(
+    open(building_sdf_path).read(), FloatingBaseType.kFixed,
+    table_frame_robot, tree)
 
-# - Add frames for camera fixture.
+# Add UAV model
+uav_frame = RigidBodyFrame(
+    "uav_frame", tree.world(),
+    [0, 0, 0], [0, 0, 0])
+AddModelInstanceFromUrdfFile(
+    uav_urdf_path, FloatingBaseType.kRollPitchYaw,
+    uav_frame, tree)
+# - Add frames for camera ficontextxture.
 frames = (
     RigidBodyFrame(
         name="rgbd camera frame 1",
-        body=tree.world(),
-        xyz=[0.8, 0.6, 1.5],  # Ensure that the box is within range.
-        rpy=[0, np.pi / 3, -np.pi / 2]),
-    RigidBodyFrame(
-        name="rgbd camera frame 2",
-        body=tree.world(),
-        xyz=[0.8, -0.6, 1.5],  # Ensure that the box is within range.
-        rpy=[0, np.pi / 3, np.pi / 2]),
-    RigidBodyFrame(
-        name="rgbd camera frame 3",
-        body=tree.world(),
-        xyz=[1.2, 0, 1.5],  # Ensure that the box is within range.
-        rpy=[0, np.pi / 3, np.pi]),
-    RigidBodyFrame(
-        name="rgbd camera frame 4",
-        body=tree.world(),
-        xyz=[0.4, 0, 1.5],  # Ensure that the box is within range.
-        rpy=[0, np.pi / 3, 0]),
+        body=tree.FindBody("base_link_apple"),
+        xyz=[0,0,0], # [0.8, 0.6, 1.5],  # Ensure that the box is within range.
+        rpy=[0,0,0]),# [0, np.pi / 3, -np.pi / 2]),
+    # RigidBodyFrame(
+    #     name="rgbd camera frame 2",
+    #     body=tree.world(),
+    #     xyz=[0.8, -0.6, 1.5],  # Ensure that the box is within range.
+    #     rpy=[0, np.pi / 3, np.pi / 2]),
+    # RigidBodyFrame(
+    #     name="rgbd camera frame 3",
+    #     body=tree.world(),
+    #     xyz=[1.2, 0, 1.5],  # Ensure that the box is within range.
+    #     rpy=[0, np.pi / 3, np.pi]),
+    # RigidBodyFrame(
+    #     name="rgbd camera frame 4",
+    #     body=tree.world(),
+    #     xyz=[0.4, 0, 1.5],  # Ensure that the box is within range.
+    #     rpy=[0, np.pi / 3, 0]),
 )
 
 cameras = []
@@ -67,8 +96,10 @@ for i, frame in enumerate(frames):
 
 # - Describe state.
 x = np.zeros(tree.get_num_positions() + tree.get_num_velocities())
-x[13] = -0.25
-x[14] = -0.28
+x[0] = 0
+x[1] = 0
+x[2] = 1
+x[4] = np.pi/4
 kinsol = tree.doKinematics(x[:tree.get_num_positions()])
 
 # Allocate context and render.
@@ -131,5 +162,13 @@ vis[prefix]["points"].set_object(
                  color=colors,
                  size=0.002))
 
+
+tree_viz = MeshcatRigidBodyVisualizer(rbtree=tree)
+context_viz = tree_viz.CreateDefaultContext()
+context_viz.FixInputPort(0, BasicVector(x))
+tree_viz.draw(context_viz)
+
+
 np.save("scene_point_cloud", points_in_world_frame.T)
+
 
